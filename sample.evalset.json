@@ -1,0 +1,254 @@
+{
+  "eval_set_id": "sample_evalset",
+  "name": "Sample Eval Set",
+  "description": "A small example evalset for testing the Ragas pipeline, including tool call accuracy.",
+  "creation_timestamp": 0.0,
+  "eval_cases": [
+    {
+      "eval_id": "case_weather_lookup",
+      "creation_timestamp": 0.0,
+      "conversation_scenario": null,
+      "session_input": null,
+      "rubrics": null,
+      "final_session_state": {},
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "creation_timestamp": 0.0,
+          "rubrics": null,
+          "app_details": null,
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "What is the weather like in Warsaw today?",
+                "function_call": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_response": null,
+                "inline_data": null,
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "The current weather in Warsaw is 12°C with partly cloudy skies.",
+                "function_call": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_response": null,
+                "inline_data": null,
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": null,
+                "name": "get_weather",
+                "args": {
+                  "city": "Warsaw"
+                }
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "case_flight_search",
+      "creation_timestamp": 0.0,
+      "conversation_scenario": null,
+      "session_input": null,
+      "rubrics": null,
+      "final_session_state": {},
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "creation_timestamp": 0.0,
+          "rubrics": null,
+          "app_details": null,
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Find me flights from Warsaw to London next Monday.",
+                "function_call": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_response": null,
+                "inline_data": null,
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I found several flights from Warsaw (WAW) to London (LHR) on Monday. The cheapest option departs at 06:30 for £89.",
+                "function_call": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_response": null,
+                "inline_data": null,
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": null,
+                "name": "search_flights",
+                "args": {
+                  "origin": "WAW",
+                  "destination": "LHR",
+                  "date": "next Monday"
+                }
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "case_multi_turn_booking",
+      "creation_timestamp": 0.0,
+      "conversation_scenario": null,
+      "session_input": null,
+      "rubrics": null,
+      "final_session_state": {},
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "creation_timestamp": 0.0,
+          "rubrics": null,
+          "app_details": null,
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "What is the weather in Paris?",
+                "function_call": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_response": null,
+                "inline_data": null,
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "It is currently 18°C and sunny in Paris.",
+                "function_call": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_response": null,
+                "inline_data": null,
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": null,
+                "name": "get_weather",
+                "args": {
+                  "city": "Paris"
+                }
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          }
+        },
+        {
+          "invocation_id": "inv_2",
+          "creation_timestamp": 0.0,
+          "rubrics": null,
+          "app_details": null,
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Great, book me a hotel there for 2 nights starting tomorrow.",
+                "function_call": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_response": null,
+                "inline_data": null,
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I have booked a hotel in Paris for 2 nights starting tomorrow. Your confirmation number is HTL-4821.",
+                "function_call": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "file_data": null,
+                "function_response": null,
+                "inline_data": null,
+                "thought": null,
+                "thought_signature": null,
+                "video_metadata": null
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": null,
+                "name": "book_hotel",
+                "args": {
+                  "city": "Paris",
+                  "check_in": "tomorrow",
+                  "nights": "2"
+                }
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          }
+        }
+      ]
+    }
+  ]
+}

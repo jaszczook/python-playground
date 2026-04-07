@@ -1,0 +1,111 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Tasks API",
+    "version": "1.0.0",
+    "description": "A simple task management API"
+  },
+  "servers": [
+    {"url": "http://localhost:8000"}
+  ],
+  "paths": {
+    "/tasks": {
+      "get": {
+        "operationId": "list_tasks",
+        "summary": "List all tasks",
+        "responses": {
+          "200": {
+            "description": "A list of tasks",
+            "content": {
+              "application/json": {
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/Task"}}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_task",
+        "summary": "Create a new task",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CreateTaskRequest"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Task created",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Task"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tasks/{task_id}": {
+      "get": {
+        "operationId": "get_task",
+        "summary": "Get a task by ID",
+        "parameters": [
+          {"name": "task_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Task found"},
+          "404": {"description": "Task not found"}
+        }
+      },
+      "delete": {
+        "operationId": "delete_task",
+        "summary": "Delete a task by ID",
+        "parameters": [
+          {"name": "task_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Task deleted"},
+          "404": {"description": "Task not found"}
+        }
+      }
+    },
+    "/tasks/{task_id}/complete": {
+      "post": {
+        "operationId": "complete_task",
+        "summary": "Mark a task as complete",
+        "parameters": [
+          {"name": "task_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Task marked complete"},
+          "404": {"description": "Task not found"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id":          {"type": "string"},
+          "title":       {"type": "string"},
+          "description": {"type": "string"},
+          "completed":   {"type": "boolean"},
+          "created_at":  {"type": "string", "format": "date-time"}
+        },
+        "required": ["id", "title", "completed", "created_at"]
+      },
+      "CreateTaskRequest": {
+        "type": "object",
+        "properties": {
+          "title":       {"type": "string"},
+          "description": {"type": "string", "default": ""}
+        },
+        "required": ["title"]
+      }
+    }
+  }
+}
