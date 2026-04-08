@@ -36,7 +36,7 @@ client = httpx.AsyncClient(
 spec = json.loads((Path(__file__).parent / "openapi_spec.json").read_text())
 mcp = FastMCP.from_openapi(openapi_spec=spec, client=client)
 
-app = mcp.streamable_http_app()
+app = mcp.http_app()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)

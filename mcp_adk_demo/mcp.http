@@ -1,0 +1,290 @@
+### ============================================================
+### MCP Test Flow — Tasks API
+### Run requests top-to-bottom; each step builds on the previous.
+### ============================================================
+
+### 1. Initialize session — captures Mcp-Session-Id into {{mcp_session_id}}
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": {
+      "name": "http-test-client",
+      "version": "1.0"
+    }
+  }
+}
+
+> {%
+  client.global.set("mcp_session_id", response.headers.valueOf("Mcp-Session-Id"));
+%}
+
+### 2. Acknowledge initialization (required by MCP protocol)
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/initialized",
+  "params": {}
+}
+
+### 3. List available tools — verify all 5 tools are registered
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/list",
+  "params": {}
+}
+
+### ============================================================
+### Happy-path lifecycle: create → list → get → complete → delete
+### ============================================================
+
+### 4. Create a task
+# @name createTask
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "create_task",
+    "arguments": {
+      "title": "Buy groceries",
+      "description": "Milk, eggs, bread"
+    }
+  }
+}
+
+### 5. Create a second task (to make list non-trivial)
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "create_task",
+    "arguments": {
+      "title": "Write tests",
+      "description": "Add unit tests for the tasks API"
+    }
+  }
+}
+
+### 6. List all tasks — should show both tasks above
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "list_tasks",
+    "arguments": {}
+  }
+}
+
+### 7. Get a specific task by ID
+# Replace <task-id> with the `id` value from step 4's response
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "get_task",
+    "arguments": {
+      "task_id": "<task-id>"
+    }
+  }
+}
+
+### 8. Complete the task — completed should flip to true
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "complete_task",
+    "arguments": {
+      "task_id": "<task-id>"
+    }
+  }
+}
+
+### 9. Get task again — verify completed=true
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "get_task",
+    "arguments": {
+      "task_id": "<task-id>"
+    }
+  }
+}
+
+### 10. Delete the task
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "method": "tools/call",
+  "params": {
+    "name": "delete_task",
+    "arguments": {
+      "task_id": "<task-id>"
+    }
+  }
+}
+
+### ============================================================
+### Error cases
+### ============================================================
+
+### 11. Get non-existent task — expect 404 from upstream API
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "get_task",
+    "arguments": {
+      "task_id": "does-not-exist"
+    }
+  }
+}
+
+### 12. Delete non-existent task — expect 404 from upstream API
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tools/call",
+  "params": {
+    "name": "delete_task",
+    "arguments": {
+      "task_id": "does-not-exist"
+    }
+  }
+}
+
+### 13. Create task without required field — expect validation error
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "method": "tools/call",
+  "params": {
+    "name": "create_task",
+    "arguments": {}
+  }
+}
+
+### ============================================================
+### JWT forwarding check
+### ============================================================
+
+### 14. Call a tool with a Bearer token — verify it reaches upstream API
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "method": "tools/call",
+  "params": {
+    "name": "list_tasks",
+    "arguments": {}
+  }
+}
+
+### ============================================================
+### Protocol edge cases
+### ============================================================
+
+### 15. Unknown method — expect JSON-RPC error -32601
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Mcp-Session-Id: {{mcp_session_id}}
+
+{
+  "jsonrpc": "2.0",
+  "id": 14,
+  "method": "unknown/method",
+  "params": {}
+}
+
+### 16. Call without session ID — should be rejected or start a new session
+POST http://localhost:8080/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": 15,
+  "method": "tools/list",
+  "params": {}
+}
