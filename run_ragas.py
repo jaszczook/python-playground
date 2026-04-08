@@ -15,10 +15,10 @@ import argparse
 import json
 import sys
 
-from loader import load_eval_set
-from runner import run_eval_set
-from transformer import to_ragas_dataset, to_ragas_multiturn_dataset
-from scorer import ScoringConfig, compute_scores
+from ragas_eval.loader import load_eval_set
+from ragas_eval.runner import run_eval_set
+from ragas_eval.transformer import to_ragas_dataset, to_ragas_multiturn_dataset
+from ragas_eval.scorer import ScoringConfig, compute_scores
 
 # Import your agent — adjust path to match your project layout
 from my_app.agent import root_agent
