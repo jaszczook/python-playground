@@ -80,18 +80,5 @@ for spec_file in sorted(SPECS_DIR.glob("*.json")):
     )
 
 
-@asynccontextmanager
-async def _lifespan(server: FastMCP) -> AsyncIterator[None]:
-    try:
-        yield
-    finally:
-        for client in _clients.values():
-            await client.aclose()
-
-
-mcp = FastMCP("Task Manager", middleware=[LoggingMiddleware()], lifespan=_lifespan)
-for provider, namespace in _providers:
-    mcp.add_provider(provider, namespace=namespace)
-
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", host="0.0.0.0", port=8080)
