@@ -9,7 +9,9 @@ Run:
 
 import json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 import httpx
 from fastmcp import FastMCP
@@ -42,14 +44,31 @@ def _load_spec(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-mcp = FastMCP("Task Manager", middleware=[LoggingMiddleware()])
+# Build providers, deduplicating clients by base URL so specs that share
+# the same upstream don't each get their own connection pool.
+_clients: dict[str, httpx.AsyncClient] = {}
+_providers: list[tuple[OpenAPIProvider, str]] = []  # (provider, namespace)
+
 for spec_file in sorted(SPECS_DIR.glob("*.json")):
     namespace = spec_file.stem
     base_url = os.environ.get(f"{namespace.upper()}_API_BASE_URL", "http://localhost:8000").rstrip("/")
-    mcp.add_provider(
-        OpenAPIProvider(openapi_spec=_load_spec(spec_file), client=_make_client(base_url)),
-        namespace=namespace,
-    )
+    if base_url not in _clients:
+        _clients[base_url] = _make_client(base_url)
+    _providers.append((OpenAPIProvider(openapi_spec=_load_spec(spec_file), client=_clients[base_url]), namespace))
+
+
+@asynccontextmanager
+async def _lifespan(server: FastMCP) -> AsyncIterator[None]:
+    try:
+        yield
+    finally:
+        for client in _clients.values():
+            await client.aclose()
+
+
+mcp = FastMCP("Task Manager", middleware=[LoggingMiddleware()], lifespan=_lifespan)
+for provider, namespace in _providers:
+    mcp.add_provider(provider, namespace=namespace)
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", host="0.0.0.0", port=8080)
