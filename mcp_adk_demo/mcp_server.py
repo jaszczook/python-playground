@@ -12,8 +12,8 @@ Available methods:
                   dev / testing without a real auth flow)
 
 Run:
-  API_BASE_URL=http://real-api:8000 python mcp_server.py
-  JWT_METHOD=ENV_TOKEN JWT_TOKEN=mytoken API_BASE_URL=... python mcp_server.py
+  API_BASE_URL=http://real-api:8000 USERS_API_BASE_URL=http://users-api:9000 python mcp_server.py
+  JWT_METHOD=ENV_TOKEN JWT_TOKEN=mytoken API_BASE_URL=... USERS_API_BASE_URL=... python mcp_server.py
 """
 
 import json
@@ -27,9 +27,11 @@ import httpx
 import uvicorn
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
+from fastmcp.server.providers.openapi import OpenAPIProvider
 from starlette.middleware.base import BaseHTTPMiddleware
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000").rstrip("/")
+USERS_API_BASE_URL = os.environ.get("USERS_API_BASE_URL", "http://localhost:9000").rstrip("/")
 SSL_CA_BUNDLE = os.environ.get("SSL_CA_BUNDLE")  # path to CA cert or bundle; "false" disables verification (dev only)
 
 
@@ -107,26 +109,37 @@ _verify: bool | str = False if SSL_CA_BUNDLE == "false" else (SSL_CA_BUNDLE or T
 if SSL_CA_BUNDLE == "false":
     logger.warning("SSL verification is DISABLED — do not use this in production")
 
-client = httpx.AsyncClient(
-    base_url=API_BASE_URL,
-    verify=_verify,
-    timeout=30.0,
-    event_hooks={"request": [_inject_jwt], "response": [_log_response]},
-)
+def _make_client(base_url: str) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        base_url=base_url,
+        verify=_verify,
+        timeout=30.0,
+        event_hooks={"request": [_inject_jwt], "response": [_log_response]},
+    )
 
-spec = json.loads((Path(__file__).parent / "openapi_spec.json").read_text())
 
 SKIP_RESPONSE_VALIDATION = os.environ.get("SKIP_RESPONSE_VALIDATION", "false").lower() == "true"
 
-if SKIP_RESPONSE_VALIDATION:
-    # Strip response content schemas so FastMCP has nothing to validate against.
-    # Keeps status codes and descriptions intact for documentation purposes.
-    for path_item in spec.get("paths", {}).values():
-        for operation in path_item.values():
-            for response in operation.get("responses", {}).values():
-                response.pop("content", None)
 
-mcp = FastMCP.from_openapi(openapi_spec=spec, client=client)
+def _load_spec(filename: str) -> dict:
+    spec = json.loads((Path(__file__).parent / filename).read_text())
+    if SKIP_RESPONSE_VALIDATION:
+        for path_item in spec.get("paths", {}).values():
+            for operation in path_item.values():
+                for response in operation.get("responses", {}).values():
+                    response.pop("content", None)
+    return spec
+
+
+mcp = FastMCP("Task Manager")
+mcp.add_provider(
+    OpenAPIProvider(openapi_spec=_load_spec("openapi_spec.json"), client=_make_client(API_BASE_URL)),
+    namespace="tasks",
+)
+mcp.add_provider(
+    OpenAPIProvider(openapi_spec=_load_spec("openapi_spec_users.json"), client=_make_client(USERS_API_BASE_URL)),
+    namespace="users",
+)
 
 class _LogExceptionsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
