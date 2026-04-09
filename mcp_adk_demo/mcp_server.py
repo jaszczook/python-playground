@@ -77,11 +77,11 @@ async def _log_response(response: httpx.Response) -> None:
     level = logging.WARNING if response.is_error else logging.DEBUG
     logger.log(
         level,
-        "%s %s → %s%s",
+        "%s %s → %s\n%s",
         response.request.method,
         response.request.url,
         response.status_code,
-        f"\n{response.text}" if response.is_error else "",
+        response.text,
     )
 
 
@@ -113,8 +113,18 @@ client = httpx.AsyncClient(
 spec = json.loads((Path(__file__).parent / "openapi_spec.json").read_text())
 mcp = FastMCP.from_openapi(openapi_spec=spec, client=client)
 
+class _LogExceptionsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            logger.exception("Unhandled error during %s %s", request.method, request.url.path)
+            raise
+
+
 app = mcp.http_app()
 
+app.add_middleware(_LogExceptionsMiddleware)
 if JWT_METHOD == JwtMethod.CONTEXT_VAR:
     app.add_middleware(_CaptureAuthMiddleware)
 

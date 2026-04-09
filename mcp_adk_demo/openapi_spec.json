@@ -92,7 +92,7 @@
         "properties": {
           "id":          {"type": "string"},
           "title":       {"type": "string"},
-          "description": {"type": "string"},
+          "description": {"type": ["string", "null"]},
           "completed":   {"type": "boolean"},
           "created_at":  {"type": "string", "format": "date-time"}
         },
