@@ -14,13 +14,12 @@ Run:
 
 import json
 import os
-from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 from urllib.parse import urlparse
 
 import httpx
 from fastmcp import FastMCP
+from fastmcp.server.lifespan import lifespan
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.providers.openapi import OpenAPIProvider
@@ -64,12 +63,10 @@ _client = httpx.AsyncClient(
 )
 
 
-@asynccontextmanager
-async def _lifespan(server: FastMCP) -> AsyncIterator[None]:
-    try:
-        yield
-    finally:
-        await _client.aclose()
+@lifespan
+async def _lifespan(server: FastMCP):
+    yield
+    await _client.aclose()
 
 
 mcp = FastMCP("Task Manager", middleware=[LoggingMiddleware()], lifespan=_lifespan)
