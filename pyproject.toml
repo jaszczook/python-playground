@@ -2,12 +2,9 @@
 name = "python-playground"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = [
-    "google-adk",
-    "google-genai",
-    "ragas",
-    "fastmcp",
-    "httpx",
-    "uvicorn",
-    "fastapi",
-]
+dependencies = []
+
+# Each sub-project has its own pyproject.toml:
+#   ragas_eval/       — Ragas evaluation pipeline
+#   mcp_adk_demo/     — MCP server + FastAPI server
+#   mcp_test_agent/   — ADK test agent for local MCP testing
