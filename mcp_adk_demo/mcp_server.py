@@ -75,7 +75,7 @@ async def _lifespan(server: FastMCP) -> AsyncIterator[None]:
 mcp = FastMCP("Task Manager", middleware=[LoggingMiddleware()], lifespan=_lifespan)
 for spec_file in sorted(SPECS_DIR.glob("*.json")):
     mcp.add_provider(
-        OpenAPIProvider(openapi_spec=_prefix_spec_paths(_load_spec(spec_file)), client=_client),
+        OpenAPIProvider(openapi_spec=_prefix_spec_paths(_load_spec(spec_file)), client=_client, validate_output=False),
         namespace=spec_file.stem,
     )
 
