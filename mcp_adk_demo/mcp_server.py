@@ -1,162 +1,55 @@
 """
-FastMCP server built from openapi_spec.json.
+FastMCP server — auto-loads OpenAPI specs from examples/*.json.
 
-JWT forwarding strategy is selected via JWT_METHOD env var (default: CONTEXT_VAR).
-
-Available methods:
-  FASTMCP_DEPS  — use FastMCP's get_http_headers() dependency (works only if FastMCP
-                  populates it correctly for the transport in use; may return empty)
-  CONTEXT_VAR   — Starlette middleware captures the incoming Authorization header into
-                  a ContextVar; the httpx hook reads it from there (reliable)
-  ENV_TOKEN     — read a static Bearer token from JWT_TOKEN env var (useful for local
-                  dev / testing without a real auth flow)
+JWT is forwarded to upstream APIs via FastMCP's get_http_headers() dependency.
 
 Run:
-  API_BASE_URL=http://real-api:8000 USERS_API_BASE_URL=http://users-api:9000 python mcp_server.py
-  JWT_METHOD=ENV_TOKEN JWT_TOKEN=mytoken API_BASE_URL=... USERS_API_BASE_URL=... python mcp_server.py
+  TASKS_API_BASE_URL=http://localhost:8000 USERS_API_BASE_URL=http://localhost:9000 python mcp_server.py
 """
 
 import json
-import logging
 import os
-from contextvars import ContextVar
-from enum import Enum
 from pathlib import Path
 
 import httpx
-import uvicorn
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
+from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.providers.openapi import OpenAPIProvider
-from starlette.middleware.base import BaseHTTPMiddleware
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000").rstrip("/")
-USERS_API_BASE_URL = os.environ.get("USERS_API_BASE_URL", "http://localhost:9000").rstrip("/")
+SPECS_DIR = Path(__file__).parent / "examples"
 SSL_CA_BUNDLE = os.environ.get("SSL_CA_BUNDLE")  # path to CA cert or bundle; "false" disables verification (dev only)
 
-
-class JwtMethod(str, Enum):
-    FASTMCP_DEPS = "FASTMCP_DEPS"  # FastMCP get_http_headers() — may not work on all transports
-    CONTEXT_VAR = "CONTEXT_VAR"    # ContextVar set by Starlette middleware — reliable
-    ENV_TOKEN = "ENV_TOKEN"        # static token from JWT_TOKEN env var — for local dev
-
-
-JWT_METHOD = JwtMethod(os.environ.get("JWT_METHOD", JwtMethod.CONTEXT_VAR))
-
-# ---------------------------------------------------------------------------
-# Method: CONTEXT_VAR
-# ---------------------------------------------------------------------------
-
-_auth_ctx: ContextVar[str] = ContextVar("auth_header", default="")
-
-
-class _CaptureAuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        token = _auth_ctx.set(request.headers.get("authorization", ""))
-        try:
-            return await call_next(request)
-        finally:
-            _auth_ctx.reset(token)
-
-
-# ---------------------------------------------------------------------------
-# httpx event hook — resolves auth based on selected method
-# ---------------------------------------------------------------------------
-
-logger = logging.getLogger("mcp_server.openapi")
+_verify: bool | str = False if SSL_CA_BUNDLE == "false" else (SSL_CA_BUNDLE or True)
 
 
 async def _inject_jwt(request: httpx.Request) -> None:
-    """Forward a Bearer token to every upstream API call."""
-    auth = _resolve_auth()
+    auth = get_http_headers(include={"authorization"}).get("authorization", "")
     if auth:
         request.headers["Authorization"] = auth
 
-
-async def _log_response(response: httpx.Response) -> None:
-    """Log every response (and error bodies) from the upstream OpenAPI provider."""
-    await response.aread()
-    level = logging.WARNING if response.is_error else logging.DEBUG
-    logger.log(
-        level,
-        "%s %s → %s\n%s",
-        response.request.method,
-        response.request.url,
-        response.status_code,
-        response.text,
-    )
-
-
-def _resolve_auth() -> str:
-    if JWT_METHOD == JwtMethod.FASTMCP_DEPS:
-        return get_http_headers(include={"authorization"}).get("authorization", "")
-
-    if JWT_METHOD == JwtMethod.CONTEXT_VAR:
-        return _auth_ctx.get()
-
-    if JWT_METHOD == JwtMethod.ENV_TOKEN:
-        token = os.environ.get("JWT_TOKEN", "")
-        return f"Bearer {token}" if token else ""
-
-    return ""
-
-
-# ---------------------------------------------------------------------------
-# App setup
-# ---------------------------------------------------------------------------
-
-_verify: bool | str = False if SSL_CA_BUNDLE == "false" else (SSL_CA_BUNDLE or True)
-if SSL_CA_BUNDLE == "false":
-    logger.warning("SSL verification is DISABLED — do not use this in production")
 
 def _make_client(base_url: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=base_url,
         verify=_verify,
         timeout=30.0,
-        event_hooks={"request": [_inject_jwt], "response": [_log_response]},
+        event_hooks={"request": [_inject_jwt]},
     )
 
 
-SKIP_RESPONSE_VALIDATION = os.environ.get("SKIP_RESPONSE_VALIDATION", "false").lower() == "true"
+def _load_spec(path: Path) -> dict:
+    return json.loads(path.read_text())
 
 
-def _load_spec(filename: str) -> dict:
-    spec = json.loads((Path(__file__).parent / filename).read_text())
-    if SKIP_RESPONSE_VALIDATION:
-        for path_item in spec.get("paths", {}).values():
-            for operation in path_item.values():
-                for response in operation.get("responses", {}).values():
-                    response.pop("content", None)
-    return spec
-
-
-mcp = FastMCP("Task Manager")
-mcp.add_provider(
-    OpenAPIProvider(openapi_spec=_load_spec("openapi_spec.json"), client=_make_client(API_BASE_URL)),
-    namespace="tasks",
-)
-mcp.add_provider(
-    OpenAPIProvider(openapi_spec=_load_spec("openapi_spec_users.json"), client=_make_client(USERS_API_BASE_URL)),
-    namespace="users",
-)
-
-class _LogExceptionsMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        try:
-            return await call_next(request)
-        except Exception:
-            logger.exception("Unhandled error during %s %s", request.method, request.url.path)
-            raise
-
-
-app = mcp.http_app()
-
-app.add_middleware(_LogExceptionsMiddleware)
-if JWT_METHOD == JwtMethod.CONTEXT_VAR:
-    app.add_middleware(_CaptureAuthMiddleware)
+mcp = FastMCP("Task Manager", middleware=[LoggingMiddleware()])
+for spec_file in sorted(SPECS_DIR.glob("*.json")):
+    namespace = spec_file.stem
+    base_url = os.environ.get(f"{namespace.upper()}_API_BASE_URL", "http://localhost:8000").rstrip("/")
+    mcp.add_provider(
+        OpenAPIProvider(openapi_spec=_load_spec(spec_file), client=_make_client(base_url)),
+        namespace=namespace,
+    )
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
-    print(f"JWT_METHOD={JWT_METHOD.value}")
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=8080)

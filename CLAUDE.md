@@ -22,8 +22,8 @@ A 4-phase pipeline for evaluating ADK agents using Ragas metrics.
 **Entry point:** `python run_ragas.py <evalset.json> [--threshold-* N]`
 
 ```bash
-uv run python run_ragas.py examples/sample.evalset.json
-uv run python run_ragas.py examples/sample.evalset.json --threshold-faithfulness 0.8 --threshold-factual 0.9
+uv run python run_ragas.py ragas_eval/examples/sample.evalset.json
+uv run python run_ragas.py ragas_eval/examples/sample.evalset.json --threshold-faithfulness 0.8 --threshold-factual 0.9
 ```
 
 Exit codes: `0` = all metrics passed, `1` = one or more failed (useful for CI gates).
@@ -40,7 +40,7 @@ Exit codes: `0` = all metrics passed, `1` = one or more failed (useful for CI ga
 
 **Note:** `run_ragas.py` imports the agent from `my_app.agent` — update this to point at the actual agent before use.
 
-Sample evalset: `examples/sample.evalset.json`
+Sample evalset: `ragas_eval/examples/sample.evalset.json`
 
 ### 2. MCP + ADK Demo (`mcp_adk_demo/`)
 
@@ -49,8 +49,8 @@ A task management demo showing MCP ↔ ADK integration with JWT forwarding.
 **Three components run independently:**
 
 ```bash
-# MCP server (wraps Tasks API via OpenAPI spec)
-API_BASE_URL=http://localhost:8000 uv run python mcp_adk_demo/mcp_server.py
+# MCP server (auto-loads specs from mcp_adk_demo/examples/*.json)
+TASKS_API_BASE_URL=http://localhost:8000 USERS_API_BASE_URL=http://localhost:9000 uv run python mcp_adk_demo/mcp_server.py
 
 # FastAPI server (proxies queries to ADK agent)
 MCP_URL=http://localhost:8080/mcp uv run uvicorn mcp_adk_demo.fastapi_server:app --reload
