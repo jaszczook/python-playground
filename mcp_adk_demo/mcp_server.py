@@ -30,7 +30,7 @@ from fastmcp.server.dependencies import get_http_headers
 from starlette.middleware.base import BaseHTTPMiddleware
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000").rstrip("/")
-SSL_CA_BUNDLE = os.environ.get("SSL_CA_BUNDLE")  # path to CA cert or bundle, or "false" to disable
+SSL_CA_BUNDLE = os.environ.get("SSL_CA_BUNDLE")  # path to CA cert or bundle; "false" disables verification (dev only)
 
 
 class JwtMethod(str, Enum):
@@ -87,7 +87,7 @@ async def _log_response(response: httpx.Response) -> None:
 
 def _resolve_auth() -> str:
     if JWT_METHOD == JwtMethod.FASTMCP_DEPS:
-        return get_http_headers().get("authorization", "")
+        return get_http_headers(include={"authorization"}).get("authorization", "")
 
     if JWT_METHOD == JwtMethod.CONTEXT_VAR:
         return _auth_ctx.get()
@@ -104,9 +104,13 @@ def _resolve_auth() -> str:
 # ---------------------------------------------------------------------------
 
 _verify: bool | str = False if SSL_CA_BUNDLE == "false" else (SSL_CA_BUNDLE or True)
+if SSL_CA_BUNDLE == "false":
+    logger.warning("SSL verification is DISABLED — do not use this in production")
+
 client = httpx.AsyncClient(
     base_url=API_BASE_URL,
     verify=_verify,
+    timeout=30.0,
     event_hooks={"request": [_inject_jwt], "response": [_log_response]},
 )
 
