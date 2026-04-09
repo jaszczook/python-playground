@@ -111,6 +111,17 @@ client = httpx.AsyncClient(
 )
 
 spec = json.loads((Path(__file__).parent / "openapi_spec.json").read_text())
+
+SKIP_RESPONSE_VALIDATION = os.environ.get("SKIP_RESPONSE_VALIDATION", "false").lower() == "true"
+
+if SKIP_RESPONSE_VALIDATION:
+    # Strip response content schemas so FastMCP has nothing to validate against.
+    # Keeps status codes and descriptions intact for documentation purposes.
+    for path_item in spec.get("paths", {}).values():
+        for operation in path_item.values():
+            for response in operation.get("responses", {}).values():
+                response.pop("content", None)
+
 mcp = FastMCP.from_openapi(openapi_spec=spec, client=client)
 
 class _LogExceptionsMiddleware(BaseHTTPMiddleware):
