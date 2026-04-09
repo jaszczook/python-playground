@@ -17,6 +17,7 @@ Run:
 """
 
 import json
+import logging
 import os
 from contextvars import ContextVar
 from enum import Enum
@@ -60,11 +61,28 @@ class _CaptureAuthMiddleware(BaseHTTPMiddleware):
 # httpx event hook — resolves auth based on selected method
 # ---------------------------------------------------------------------------
 
+logger = logging.getLogger("mcp_server.openapi")
+
+
 async def _inject_jwt(request: httpx.Request) -> None:
     """Forward a Bearer token to every upstream API call."""
     auth = _resolve_auth()
     if auth:
         request.headers["Authorization"] = auth
+
+
+async def _log_response(response: httpx.Response) -> None:
+    """Log every response (and error bodies) from the upstream OpenAPI provider."""
+    await response.aread()
+    level = logging.WARNING if response.is_error else logging.DEBUG
+    logger.log(
+        level,
+        "%s %s → %s%s",
+        response.request.method,
+        response.request.url,
+        response.status_code,
+        f"\n{response.text}" if response.is_error else "",
+    )
 
 
 def _resolve_auth() -> str:
@@ -89,7 +107,7 @@ _verify: bool | str = False if SSL_CA_BUNDLE == "false" else (SSL_CA_BUNDLE or T
 client = httpx.AsyncClient(
     base_url=API_BASE_URL,
     verify=_verify,
-    event_hooks={"request": [_inject_jwt]},
+    event_hooks={"request": [_inject_jwt], "response": [_log_response]},
 )
 
 spec = json.loads((Path(__file__).parent / "openapi_spec.json").read_text())
@@ -101,5 +119,6 @@ if JWT_METHOD == JwtMethod.CONTEXT_VAR:
     app.add_middleware(_CaptureAuthMiddleware)
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
     print(f"JWT_METHOD={JWT_METHOD.value}")
     uvicorn.run(app, host="0.0.0.0", port=8080)
