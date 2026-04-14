@@ -8,6 +8,10 @@ the upstream host). Each spec's gateway prefix comes from servers[0].url and
 is prepended to all its paths before being handed to OpenAPIProvider, so the
 client only needs base_url=API_HOST.
 
+Responses are filtered by FieldFilterMiddleware: only fields declared in each
+operation's response schema are forwarded to the agent. If an operation has no
+response schema defined, all fields are stripped (empty response).
+
 Run:
   API_HOST=http://localhost:8000 python mcp_server.py
 """
@@ -23,6 +27,8 @@ from fastmcp.server.lifespan import lifespan
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.providers.openapi import OpenAPIProvider
+
+from field_filter import FieldFilterMiddleware, build_response_fields
 
 SPECS_DIR = Path(__file__).parent / "examples"
 API_HOST = os.environ.get("API_HOST", "http://localhost:8000").rstrip("/")
@@ -69,11 +75,21 @@ async def _lifespan(server: FastMCP):
     await _client.aclose()
 
 
-mcp = FastMCP("Task Manager", middleware=[LoggingMiddleware()], lifespan=_lifespan)
-for spec_file in sorted(SPECS_DIR.glob("*.json")):
+_specs = [(spec_file.stem, _load_spec(spec_file)) for spec_file in sorted(SPECS_DIR.glob("*.json"))]
+
+_response_fields: dict[str, set[str]] = {}
+for namespace, spec in _specs:
+    _response_fields.update(build_response_fields(spec, namespace))
+
+mcp = FastMCP(
+    "Task Manager",
+    middleware=[FieldFilterMiddleware(_response_fields), LoggingMiddleware()],
+    lifespan=_lifespan,
+)
+for namespace, spec in _specs:
     mcp.add_provider(
-        OpenAPIProvider(openapi_spec=_prefix_spec_paths(_load_spec(spec_file)), client=_client, validate_output=False),
-        namespace=spec_file.stem,
+        OpenAPIProvider(openapi_spec=_prefix_spec_paths(spec), client=_client, validate_output=False),
+        namespace=namespace,
     )
 
 

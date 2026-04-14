@@ -1,0 +1,10 @@
+[project]
+name = "mcp-test-api"
+version = "0.1.0"
+description = "Mock FastAPI servers matching mcp_adk_demo OpenAPI specs"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+

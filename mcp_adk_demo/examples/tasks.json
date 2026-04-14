@@ -55,7 +55,10 @@
           {"name": "task_id", "in": "path", "required": true, "schema": {"type": "string"}}
         ],
         "responses": {
-          "200": {"description": "Task found"},
+          "200": {
+            "description": "Task found",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}
+          },
           "404": {"description": "Task not found"}
         }
       },
@@ -79,7 +82,10 @@
           {"name": "task_id", "in": "path", "required": true, "schema": {"type": "string"}}
         ],
         "responses": {
-          "200": {"description": "Task marked complete"},
+          "200": {
+            "description": "Task marked complete",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}
+          },
           "404": {"description": "Task not found"}
         }
       }
@@ -91,12 +97,11 @@
         "type": "object",
         "properties": {
           "id":          {"type": "string"},
-          "title":       {"type": "string"},
           "description": {"type": "string", "nullable": true},
           "completed":   {"type": "boolean"},
           "created_at":  {"type": "string", "format": "date-time"}
         },
-        "required": ["id", "title", "completed", "created_at"]
+        "required": ["id", "completed", "created_at"]
       },
       "CreateTaskRequest": {
         "type": "object",

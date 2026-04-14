@@ -96,8 +96,6 @@ components:
       properties:
         id:
           type: string
-        title:
-          type: string
         description:
           type: string
         completed:
