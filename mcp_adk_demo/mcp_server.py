@@ -13,7 +13,7 @@ operation's response schema are forwarded to the agent. If an operation has no
 response schema defined, all fields are stripped (empty response).
 
 Run:
-  API_HOST=http://localhost:8000 python mcp_server.py
+  API_BASE_URL=http://localhost:8000 python mcp_server.py
 """
 
 import json
@@ -29,9 +29,10 @@ from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.providers.openapi import OpenAPIProvider
 
 from field_filter import FieldFilterMiddleware, build_response_fields
+from tools import users as users_tools
 
 SPECS_DIR = Path(__file__).parent / "examples"
-API_HOST = os.environ.get("API_HOST", "http://localhost:8000").rstrip("/")
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000").rstrip("/")
 SSL_CA_BUNDLE = os.environ.get("SSL_CA_BUNDLE")  # path to CA cert or bundle; "false" disables verification (dev only)
 
 _verify: bool | str = False if SSL_CA_BUNDLE == "false" else (SSL_CA_BUNDLE or True)
@@ -62,7 +63,7 @@ def _prefix_spec_paths(spec: dict) -> dict:
 
 # Single shared client — one connection pool to the upstream host.
 _client = httpx.AsyncClient(
-    base_url=API_HOST,
+    base_url=API_BASE_URL,
     verify=_verify,
     timeout=30.0,
     event_hooks={"request": [_inject_jwt]},
@@ -91,6 +92,8 @@ for namespace, spec in _specs:
         OpenAPIProvider(openapi_spec=_prefix_spec_paths(spec), client=_client, validate_output=False),
         namespace=namespace,
     )
+
+users_tools.register(mcp, _client)
 
 
 if __name__ == "__main__":

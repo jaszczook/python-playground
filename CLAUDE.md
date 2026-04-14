@@ -48,14 +48,20 @@ Sample evalset: `ragas_eval/examples/sample.evalset.json`
 
 A task management demo showing MCP ↔ ADK integration with JWT forwarding.
 
-**Two components run independently:**
+**Three components run independently:**
 
 ```bash
+# Mock API (Tasks + Users on a single port) — in-memory, seed data included
+cd mcp_test_api
+uv run python combined_app.py          # default port 8000
+
 # MCP server (auto-loads specs from mcp_adk_demo/examples/*.json)
 cd mcp_adk_demo
-TASKS_API_BASE_URL=http://localhost:8000 USERS_API_BASE_URL=http://localhost:9000 uv run python mcp_server.py
+API_BASE_URL=http://localhost:8000 uv run python mcp_server.py
+# Optional: SSL_CA_BUNDLE=<path>  (or "false" to disable TLS verification in dev)
 
 # FastAPI server (proxies queries to ADK agent)
+cd mcp_adk_demo
 MCP_URL=http://localhost:8080/mcp uv run uvicorn fastapi_server:app --reload
 ```
 
