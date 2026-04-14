@@ -10,9 +10,26 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.evaluation.eval_set import EvalCase, EvalSet
 from google.adk.evaluation.eval_case import IntermediateData
-from google.genai.types import Content, Part
+from google.genai.types import Content
 
 from .model import CaseResult, InvocationResult
+
+
+def _user_input_text(content: Content) -> str:
+    """Extract a text representation of user content for Ragas (text-only metrics).
+
+    Text parts are concatenated. Binary parts (inline_data, file_data) are
+    represented as bracketed descriptors so Ragas still receives a valid string.
+    """
+    fragments = []
+    for part in content.parts or []:
+        if part.text:
+            fragments.append(part.text)
+        elif part.inline_data:
+            fragments.append(f"[inline_data: {part.inline_data.mime_type}]")
+        elif part.file_data:
+            fragments.append(f"[file_data: {part.file_data.mime_type} {part.file_data.file_uri}]")
+    return " ".join(fragments)
 
 
 async def _run_single_case(
@@ -36,7 +53,7 @@ async def _run_single_case(
     case_result = CaseResult(eval_case_id=eval_case.eval_id)
 
     for turn_index, invocation in enumerate(eval_case.conversation):
-        user_text = invocation.user_content.parts[0].text
+        user_input_text = _user_input_text(invocation.user_content)
         actual_response = ""
         tool_calls = []
         retrieved_contexts = []
@@ -44,7 +61,7 @@ async def _run_single_case(
         async for event in runner.run_async(
             user_id=user_id,
             session_id=session.id,
-            new_message=Content(parts=[Part(text=user_text)], role="user"),
+            new_message=invocation.user_content,
         ):
             if event.is_final_response() and event.content:
                 for part in event.content.parts:
@@ -71,7 +88,7 @@ async def _run_single_case(
         case_result.invocations.append(InvocationResult(
             eval_case_id=eval_case.eval_id,
             turn_index=turn_index,
-            user_input=user_text,
+            user_input=user_input_text,
             actual_response=actual_response,
             reference=invocation.final_response.parts[0].text,
             retrieved_contexts=retrieved_contexts,
