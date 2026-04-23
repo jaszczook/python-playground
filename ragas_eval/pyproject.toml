@@ -6,4 +6,5 @@ dependencies = [
     "google-adk",
     "google-genai",
     "ragas",
+    "arize-phoenix",
 ]

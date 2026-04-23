@@ -19,6 +19,7 @@ from ragas_eval.loader import load_eval_set
 from ragas_eval.runner import run_eval_set
 from ragas_eval.transformer import to_ragas_dataset, to_ragas_multiturn_dataset
 from ragas_eval.scorer import ScoringConfig, compute_scores
+from ragas_eval.phoenix_reporter import PhoenixConfig, publish_to_phoenix
 
 # Import your agent — adjust path to match your project layout
 from my_app.agent import root_agent
@@ -31,11 +32,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold-faithfulness", type=float, default=0.7)
     parser.add_argument("--threshold-factual", type=float, default=0.7)
     parser.add_argument("--threshold-tool-call-accuracy", type=float, default=0.7)
+    parser.add_argument(
+        "--phoenix-endpoint",
+        default=None,
+        help="Publish results to Phoenix at this URL (e.g. http://localhost:6006). "
+             "Omit to skip Phoenix reporting.",
+    )
+    parser.add_argument("--phoenix-project", default="ragas-eval")
     return parser.parse_args()
 
 
 async def run_pipeline(args: argparse.Namespace) -> bool:
-    """Execute all four pipeline phases. Returns True if passed."""
+    """Execute pipeline phases. Returns True if all metrics passed."""
 
     # Phase 1 — Load
     print(f"\n[1/4] Loading evalset: {args.evalset}")
@@ -85,6 +93,21 @@ async def run_pipeline(args: argparse.Namespace) -> bool:
     }, indent=2))
     print("=" * 40)
     print(f"RESULT: {'✓ PASSED' if result.passed else '✗ FAILED'}")
+
+    # Phase 5 — Publish to Phoenix (optional)
+    if args.phoenix_endpoint:
+        print(f"\n[5/5] Publishing results to Phoenix ({args.phoenix_endpoint})...")
+        phoenix_config = PhoenixConfig(
+            endpoint=args.phoenix_endpoint,
+            project_name=args.phoenix_project,
+        )
+        publish_to_phoenix(
+            result=result,
+            case_results=case_results,
+            config=phoenix_config,
+            evalset_path=args.evalset,
+        )
+        print(f"      Results published to project '{args.phoenix_project}'")
 
     return result.passed
 

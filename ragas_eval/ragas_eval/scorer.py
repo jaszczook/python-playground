@@ -5,8 +5,9 @@ Change when: metrics selection changes, judge LLM configuration changes,
 or thresholds / pass-fail logic changes.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+import pandas as pd
 from ragas import evaluate
 from ragas.dataset_schema import EvaluationDataset
 from ragas.metrics import Faithfulness, FactualCorrectness, ToolCallAccuracy
@@ -38,6 +39,11 @@ class ScoringResult:
     tool_call_accuracy: float
     passed: bool
     raw: dict
+    # Per-sample DataFrames — same row order as the datasets passed to compute_scores().
+    # single_turn_samples: one row per invocation (columns: faithfulness, factual_correctness)
+    # multiturn_samples:   one row per eval case  (column:  tool_call_accuracy)
+    single_turn_samples: pd.DataFrame = field(default_factory=pd.DataFrame)
+    multiturn_samples: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def compute_scores(
@@ -66,10 +72,12 @@ def compute_scores(
             metric.llm = config.judge_llm
 
     single_turn_result = evaluate(dataset=dataset, metrics=single_turn_metrics)
-    single_turn_scores = single_turn_result.to_pandas().mean().to_dict()
+    single_turn_df = single_turn_result.to_pandas()
+    single_turn_scores = single_turn_df.mean().to_dict()
 
     multiturn_result = evaluate(dataset=multiturn_dataset, metrics=multiturn_metrics)
-    multiturn_scores = multiturn_result.to_pandas().mean().to_dict()
+    multiturn_df = multiturn_result.to_pandas()
+    multiturn_scores = multiturn_df.mean().to_dict()
 
     faithfulness = single_turn_scores.get("faithfulness", 0.0)
     factual_correctness = single_turn_scores.get("factual_correctness", 0.0)
@@ -87,4 +95,6 @@ def compute_scores(
         tool_call_accuracy=tool_call_accuracy,
         passed=passed,
         raw={**single_turn_scores, **multiturn_scores},
+        single_turn_samples=single_turn_df,
+        multiturn_samples=multiturn_df,
     )
