@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 import pandas as pd
 
 from ragas_eval.model import CaseResult
@@ -64,13 +65,19 @@ def publish_to_phoenix(
     per_turn_scores = _build_per_turn_scores(result, case_results)
 
     dataset_name = Path(evalset_path).stem if evalset_path else "ragas-evalset"
-    dataset = client.datasets.create_dataset(
-        name=dataset_name,
-        dataframe=_build_dataset_df(case_results),
-        input_keys=["user_input"],
-        output_keys=["agent_response", "reference"],
-        metadata_keys=["case_id", "turn_index"],
-    )
+    try:
+        dataset = client.datasets.create_dataset(
+            name=dataset_name,
+            dataframe=_build_dataset_df(case_results),
+            input_keys=["user_input"],
+            output_keys=["agent_response", "reference"],
+            metadata_keys=["case_id", "turn_index"],
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 409:
+            raise
+        # Dataset (and its Examples) already exist — reuse it for this Experiment.
+        dataset = client.datasets.get_dataset(dataset=dataset_name)
 
     # DatasetExample is a TypedDict: access fields with example["key"].
     def task(example) -> str:
