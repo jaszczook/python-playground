@@ -6,5 +6,10 @@ dependencies = [
     "google-adk",
     "google-genai",
     "ragas",
-    "arize-phoenix",
+    "pandas"
+]
+
+[project.optional-dependencies]
+phoenix = [
+    "arize-phoenix-client>=2.4.0",
 ]

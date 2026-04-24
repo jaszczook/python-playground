@@ -10,6 +10,8 @@ Phoenix concepts used:
   Experiment — a named run against a dataset; stores task outputs and evaluation scores.
                Each evaluation (faithfulness, factual_correctness, tool_call_accuracy)
                appears as a separate column in the Phoenix Experiments UI.
+
+Requires: arize-phoenix-client>=2.0  (install via: uv sync --extra phoenix)
 """
 
 from __future__ import annotations
@@ -51,20 +53,19 @@ def publish_to_phoenix(
         evalset_path: Path to the evalset file, used to name the dataset.
     """
     # Import here so the dependency is only required when Phoenix reporting is used.
-    import phoenix as px
-    from phoenix.experiments import run_experiment
-    from phoenix.experiments.types import EvaluationResult as PhoenixEval
+    from phoenix.client import Client
+    from phoenix.client.experiments import run_experiment
 
     if config is None:
         config = PhoenixConfig()
 
-    client = px.Client(endpoint=config.endpoint)
+    client = Client(endpoint=config.endpoint)
     per_case_scores = _build_per_case_scores(result, case_results)
 
     dataset_name = Path(evalset_path).stem if evalset_path else "ragas-evalset"
-    dataset = client.upload_dataset(
+    dataset = client.datasets.create_dataset(
+        name=dataset_name,
         dataframe=_build_dataset_df(case_results),
-        dataset_name=dataset_name,
         input_keys=["conversation"],
         output_keys=["reference"],
         metadata_keys=["case_id", "num_turns"],
@@ -77,20 +78,18 @@ def publish_to_phoenix(
         if case.invocations
     }
 
+    # DatasetExample is a TypedDict: access fields with example["key"].
     def task(example) -> str:
-        return response_by_case.get(example.metadata["case_id"], "")
+        return response_by_case.get(example["metadata"]["case_id"], "")
 
-    def faithfulness(output, metadata) -> PhoenixEval:
-        score = per_case_scores.get(metadata["case_id"], {}).get("faithfulness")
-        return PhoenixEval(score=score)
+    def faithfulness(output, metadata) -> float | None:
+        return per_case_scores.get(metadata["case_id"], {}).get("faithfulness")
 
-    def factual_correctness(output, metadata) -> PhoenixEval:
-        score = per_case_scores.get(metadata["case_id"], {}).get("factual_correctness")
-        return PhoenixEval(score=score)
+    def factual_correctness(output, metadata) -> float | None:
+        return per_case_scores.get(metadata["case_id"], {}).get("factual_correctness")
 
-    def tool_call_accuracy(output, metadata) -> PhoenixEval:
-        score = per_case_scores.get(metadata["case_id"], {}).get("tool_call_accuracy")
-        return PhoenixEval(score=score)
+    def tool_call_accuracy(output, metadata) -> float | None:
+        return per_case_scores.get(metadata["case_id"], {}).get("tool_call_accuracy")
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     run_experiment(
@@ -98,7 +97,6 @@ def publish_to_phoenix(
         task=task,
         evaluators=[faithfulness, factual_correctness, tool_call_accuracy],
         experiment_name=f"{dataset_name}-{timestamp}",
-        project_name=config.project_name,
         client=client,
     )
 
