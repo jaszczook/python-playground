@@ -1,15 +1,16 @@
 """Phase 5: Publish evaluation results to Arize Phoenix as an Experiment.
 
-Single responsibility: upload eval cases as a Phoenix Dataset and log per-case
+Single responsibility: upload eval cases as a Phoenix Dataset and log per-turn
 Ragas scores as Experiment evaluations.
 Change when: Phoenix client API changes, dataset/experiment structure changes,
 or new per-case metrics are added.
 
 Phoenix concepts used:
-  Dataset    — one row per eval case; stores the input conversation and reference.
+  Dataset    — one row per turn; stores the user input, agent response, and reference.
   Experiment — a named run against a dataset; stores task outputs and evaluation scores.
-               Each evaluation (faithfulness, factual_correctness, tool_call_accuracy)
-               appears as a separate column in the Phoenix Experiments UI.
+               faithfulness and factual_correctness are true per-turn scores.
+               tool_call_accuracy is a case-level metric repeated across all turns
+               of the same case (label makes this clear in the UI).
 
 Requires: arize-phoenix-client>=2.0  (install via: uv sync --extra phoenix)
 """
@@ -60,42 +61,42 @@ def publish_to_phoenix(
         config = PhoenixConfig()
 
     client = Client(endpoint=config.endpoint)
-    per_case_scores = _build_per_case_scores(result, case_results)
+    per_turn_scores = _build_per_turn_scores(result, case_results)
 
     dataset_name = Path(evalset_path).stem if evalset_path else "ragas-evalset"
     dataset = client.datasets.create_dataset(
         name=dataset_name,
         dataframe=_build_dataset_df(case_results),
-        input_keys=["conversation"],
-        output_keys=["reference"],
-        metadata_keys=["case_id", "num_turns"],
+        input_keys=["user_input"],
+        output_keys=["agent_response", "reference"],
+        metadata_keys=["case_id", "turn_index"],
     )
-
-    # Pre-computed response lookup: last turn's actual output per case.
-    response_by_case = {
-        case.eval_case_id: case.invocations[-1].actual_response
-        for case in case_results
-        if case.invocations
-    }
 
     # DatasetExample is a TypedDict: access fields with example["key"].
     def task(example) -> str:
-        return response_by_case.get(example["metadata"]["case_id"], "")
+        return example["output"]["agent_response"]
 
     def faithfulness(output, metadata) -> float | None:
-        return per_case_scores.get(metadata["case_id"], {}).get("faithfulness")
+        return per_turn_scores.get(
+            (metadata["case_id"], metadata["turn_index"]), {}
+        ).get("faithfulness")
 
     def factual_correctness(output, metadata) -> float | None:
-        return per_case_scores.get(metadata["case_id"], {}).get("factual_correctness")
+        return per_turn_scores.get(
+            (metadata["case_id"], metadata["turn_index"]), {}
+        ).get("factual_correctness")
 
-    def tool_call_accuracy(output, metadata) -> float | None:
-        return per_case_scores.get(metadata["case_id"], {}).get("tool_call_accuracy")
+    def tool_call_accuracy__case(output, metadata) -> float | None:
+        """Case-level metric repeated per turn. Same value for all turns in a case."""
+        return per_turn_scores.get(
+            (metadata["case_id"], metadata["turn_index"]), {}
+        ).get("tool_call_accuracy")
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     run_experiment(
         dataset=dataset,
         task=task,
-        evaluators=[faithfulness, factual_correctness, tool_call_accuracy],
+        evaluators=[faithfulness, factual_correctness, tool_call_accuracy__case],
         experiment_name=f"{dataset_name}-{timestamp}",
         client=client,
     )
@@ -104,59 +105,56 @@ def publish_to_phoenix(
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 def _build_dataset_df(case_results: list[CaseResult]) -> pd.DataFrame:
-    """One row per eval case with the full conversation and the final reference."""
+    """One row per turn with the user input, agent response, and reference."""
     rows = []
     for case in case_results:
-        turns = []
         for inv in case.invocations:
-            turns.append(f"User: {inv.user_input}")
-            turns.append(f"Agent: {inv.actual_response}")
-        rows.append({
-            "case_id": case.eval_case_id,
-            "num_turns": len(case.invocations),
-            "conversation": "\n".join(turns),
-            "reference": case.invocations[-1].reference if case.invocations else "",
-        })
+            rows.append({
+                "case_id": case.eval_case_id,
+                "turn_index": inv.turn_index,
+                "user_input": inv.user_input,
+                "agent_response": inv.actual_response,
+                "reference": inv.reference,
+            })
     return pd.DataFrame(rows)
 
 
-def _build_per_case_scores(
+def _build_per_turn_scores(
     result: ScoringResult,
     case_results: list[CaseResult],
-) -> dict[str, dict[str, float]]:
-    """Build a {case_id → {metric → score}} dict from the per-sample DataFrames.
+) -> dict[tuple[str, int], dict[str, float]]:
+    """Build a {(case_id, turn_index) → {metric → score}} dict.
 
-    single_turn_samples has one row per invocation (same order as transformer output).
-    multiturn_samples has one row per case (same order as case_results).
-    We average single-turn metrics across turns within each case.
+    single_turn_samples has one row per invocation in the same order as
+    transformer output (case_results flattened turn-by-turn).
+    multiturn_samples has one row per case; tool_call_accuracy is repeated
+    across all turns of that case.
     """
-    scores: dict[str, dict[str, float]] = {}
+    scores: dict[tuple[str, int], dict[str, float]] = {}
 
-    # ── single-turn metrics (averaged per case) ───────────────────────────────
+    # Flatten turns to get the (case_id, turn_index) key for each st row.
+    turn_keys: list[tuple[str, int]] = [
+        (case.eval_case_id, inv.turn_index)
+        for case in case_results
+        for inv in case.invocations
+    ]
+
+    # ── single-turn metrics (one value per turn, direct from scorer) ──────────
     if not result.single_turn_samples.empty:
-        st_df = result.single_turn_samples.copy()
-        st_df["case_id"] = [
-            case.eval_case_id
-            for case in case_results
-            for _ in case.invocations
-        ]
+        st_df = result.single_turn_samples
         st_cols = [c for c in ("faithfulness", "factual_correctness") if c in st_df.columns]
-        if st_cols:
-            for case_id, row in st_df.groupby("case_id")[st_cols].mean().iterrows():
-                scores.setdefault(str(case_id), {}).update(
-                    {k: float(v) for k, v in row.items()}
-                )
+        for i, key in enumerate(turn_keys):
+            scores.setdefault(key, {}).update(
+                {col: float(st_df.iloc[i][col]) for col in st_cols}
+            )
 
-    # ── multi-turn metrics (one value per case) ────────────────────────────────
+    # ── multi-turn metric (case-level, repeated per turn) ─────────────────────
     if not result.multiturn_samples.empty:
-        mt_df = result.multiturn_samples.copy()
-        mt_df["case_id"] = [case.eval_case_id for case in case_results]
-        mt_cols = [c for c in ("tool_call_accuracy",) if c in mt_df.columns]
-        if mt_cols:
-            for _, row in mt_df[["case_id"] + mt_cols].iterrows():
-                case_id = str(row["case_id"])
-                scores.setdefault(case_id, {}).update(
-                    {k: float(row[k]) for k in mt_cols}
-                )
+        mt_df = result.multiturn_samples
+        if "tool_call_accuracy" in mt_df.columns:
+            for case_idx, case in enumerate(case_results):
+                tca = float(mt_df.iloc[case_idx]["tool_call_accuracy"])
+                for inv in case.invocations:
+                    scores.setdefault((case.eval_case_id, inv.turn_index), {})["tool_call_accuracy"] = tca
 
     return scores
