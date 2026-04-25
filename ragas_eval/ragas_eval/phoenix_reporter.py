@@ -1,16 +1,18 @@
-"""Phase 5: Publish evaluation results to Arize Phoenix as an Experiment.
+"""Phase 5: Publish evaluation results to Arize Phoenix as Experiments.
 
-Single responsibility: upload eval cases as a Phoenix Dataset and log per-turn
+Single responsibility: upload eval cases as Phoenix Datasets and log per-turn
 Ragas scores as Experiment evaluations.
 Change when: Phoenix client API changes, dataset/experiment structure changes,
 or new per-case metrics are added.
 
 Phoenix concepts used:
-  Dataset    — one row per turn; stores the user input, agent response, and reference.
-  Experiment — a named run against a dataset; stores task outputs and evaluation scores.
-               faithfulness and factual_correctness are true per-turn scores.
-               tool_call_accuracy is a case-level metric repeated across all turns
-               of the same case (label makes this clear in the UI).
+  Dataset    — one per eval case; one Example per turn (user input, agent
+               response, reference).
+  Experiment — one per eval case per pipeline run, named {case_id}-{label}.
+               Enables side-by-side comparison of prompt variants in the UI.
+  Evaluators — faithfulness and factual_correctness are true per-turn scores;
+               tool_call_accuracy is a case-level metric, same value for all
+               turns of the case.
 
 Requires: arize-phoenix-client>=2.0  (install via: uv sync --extra phoenix)
 """
@@ -19,7 +21,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 
 import httpx
 import pandas as pd
@@ -44,86 +45,87 @@ def publish_to_phoenix(
     result: ScoringResult,
     case_results: list[CaseResult],
     config: PhoenixConfig | None = None,
-    evalset_path: str = "",
+    experiment_label: str = "",
 ) -> None:
-    """Upload eval cases as a Phoenix Dataset and log Ragas scores as an Experiment.
+    """Upload each eval case as a Phoenix Dataset and log Ragas scores as an Experiment.
+
+    One Dataset per eval case (named after the case ID) is created on first run
+    and reused on subsequent runs. Each pipeline run creates one new Experiment
+    per case, named {case_id}-{experiment_label}, enabling prompt A/B comparison
+    in the Phoenix UI.
 
     Args:
         result: Aggregate + per-sample scoring output from compute_scores().
         case_results: Per-case invocation details from run_eval_set().
         config: Phoenix connection settings. Uses defaults if not provided.
-        evalset_path: Path to the evalset file, used to name the dataset.
+        experiment_label: Human-readable label for this run, e.g. "prompt-v2".
+                          Defaults to a UTC timestamp if empty.
     """
-    # Import here so the dependency is only required when Phoenix reporting is used.
     from phoenix.client import Client
     from phoenix.client.experiments import run_experiment
 
     if config is None:
         config = PhoenixConfig()
 
+    label = experiment_label or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     client = Client(endpoint=config.endpoint)
     per_turn_scores = _build_per_turn_scores(result, case_results)
 
-    dataset_name = Path(evalset_path).stem if evalset_path else "ragas-evalset"
-    try:
-        dataset = client.datasets.create_dataset(
-            name=dataset_name,
-            dataframe=_build_dataset_df(case_results),
-            input_keys=["user_input"],
-            output_keys=["agent_response", "reference"],
-            metadata_keys=["case_id", "turn_index"],
-        )
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code != 409:
-            raise
-        # Dataset (and its Examples) already exist — reuse it for this Experiment.
-        dataset = client.datasets.get_dataset(dataset=dataset_name)
+    def _key(metadata) -> tuple[str, int]:
+        # turn_index is stored as int but Phoenix may deserialize it as float via JSON.
+        return (metadata["case_id"], int(metadata["turn_index"]))
 
-    # DatasetExample is a TypedDict: access fields with example["key"].
     def task(example) -> str:
         return example["output"]["agent_response"]
 
     def faithfulness(output, metadata) -> float | None:
-        return per_turn_scores.get(
-            (metadata["case_id"], metadata["turn_index"]), {}
-        ).get("faithfulness")
+        return per_turn_scores.get(_key(metadata), {}).get("faithfulness")
 
     def factual_correctness(output, metadata) -> float | None:
-        return per_turn_scores.get(
-            (metadata["case_id"], metadata["turn_index"]), {}
-        ).get("factual_correctness")
+        return per_turn_scores.get(_key(metadata), {}).get("factual_correctness")
 
     def tool_call_accuracy__case(output, metadata) -> float | None:
         """Case-level metric repeated per turn. Same value for all turns in a case."""
-        return per_turn_scores.get(
-            (metadata["case_id"], metadata["turn_index"]), {}
-        ).get("tool_call_accuracy")
+        return per_turn_scores.get(_key(metadata), {}).get("tool_call_accuracy")
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    run_experiment(
-        dataset=dataset,
-        task=task,
-        evaluators=[faithfulness, factual_correctness, tool_call_accuracy__case],
-        experiment_name=f"{dataset_name}-{timestamp}",
-        client=client,
-    )
+    for case in case_results:
+        try:
+            dataset = client.datasets.create_dataset(
+                name=case.eval_case_id,
+                dataframe=_build_case_df(case),
+                input_keys=["user_input"],
+                output_keys=["agent_response", "reference"],
+                metadata_keys=["case_id", "turn_index"],
+            )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 409:
+                raise
+            # Dataset (and its Examples) already exist — reuse for this Experiment.
+            dataset = client.datasets.get_dataset(dataset=case.eval_case_id)
+
+        run_experiment(
+            dataset=dataset,
+            task=task,
+            evaluators=[faithfulness, factual_correctness, tool_call_accuracy__case],
+            experiment_name=f"{case.eval_case_id}-{label}",
+            client=client,
+        )
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _build_dataset_df(case_results: list[CaseResult]) -> pd.DataFrame:
-    """One row per turn with the user input, agent response, and reference."""
-    rows = []
-    for case in case_results:
-        for inv in case.invocations:
-            rows.append({
-                "case_id": case.eval_case_id,
-                "turn_index": inv.turn_index,
-                "user_input": inv.user_input,
-                "agent_response": inv.actual_response,
-                "reference": inv.reference,
-            })
-    return pd.DataFrame(rows)
+def _build_case_df(case: CaseResult) -> pd.DataFrame:
+    """One row per turn for a single eval case."""
+    return pd.DataFrame([
+        {
+            "case_id": case.eval_case_id,
+            "turn_index": inv.turn_index,
+            "user_input": inv.user_input,
+            "agent_response": inv.actual_response,
+            "reference": inv.reference,
+        }
+        for inv in case.invocations
+    ])
 
 
 def _build_per_turn_scores(

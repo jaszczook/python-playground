@@ -39,6 +39,12 @@ def parse_args() -> argparse.Namespace:
              "Omit to skip Phoenix reporting.",
     )
     parser.add_argument("--phoenix-project", default="ragas-eval")
+    parser.add_argument(
+        "--experiment-label",
+        default="",
+        help="Label for this Phoenix Experiment run, e.g. 'prompt-v2'. "
+             "Defaults to a UTC timestamp if omitted.",
+    )
     return parser.parse_args()
 
 
@@ -105,7 +111,7 @@ async def run_pipeline(args: argparse.Namespace) -> bool:
             result=result,
             case_results=case_results,
             config=phoenix_config,
-            evalset_path=args.evalset,
+            experiment_label=args.experiment_label,
         )
         print(f"      Results published to project '{args.phoenix_project}'")
 

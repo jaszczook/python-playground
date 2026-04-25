@@ -6,42 +6,58 @@ How `ragas_eval` concepts map to Arize Phoenix.
 
 | ragas_eval | Phoenix | Granularity |
 |---|---|---|
-| `.evalset.json` file | **Dataset** | one per evalset file |
-| single agent turn (`InvocationResult`) | **Example** | one per turn |
-| one full pipeline run | **Experiment** | one per `run_ragas.py` invocation |
+| eval case (`eval_id`) | **Dataset** | one per eval case |
+| single agent turn (`InvocationResult`) | **Example** | one per turn within a case |
+| one full pipeline run | **Experiment** per case | one per case per `run_ragas.py` invocation |
 | per-turn Ragas scores | **Experiment Run** | one per Example per Experiment |
 
 ## Concrete example — `sample.evalset.json`
 
-The evalset has 3 eval cases and 4 turns total.
+### Dataset: `case_weather_lookup` (1 Example, stable across runs)
 
-### Dataset: `sample` (created once, reused across runs)
+| Example | `turn_index` | `user_input` |
+|---|---|---|
+| #1 | 0 | "What is the weather like in Warsaw today?" |
 
-| Example | `case_id` | `turn_index` | `user_input` |
+| Experiment | faithfulness | factual_correctness | tool_call_accuracy |
 |---|---|---|---|
-| #1 | `case_weather_lookup` | 0 | "What is the weather like in Warsaw today?" |
-| #2 | `case_flight_search` | 0 | "Find me flights from Warsaw to London next Monday." |
-| #3 | `case_multi_turn_booking` | 0 | "What is the weather in Paris?" |
-| #4 | `case_multi_turn_booking` | 1 | "Great, book me a hotel there for 2 nights starting tomorrow." |
+| `case_weather_lookup-prompt-v1` | 0.92 | 0.85 | 0.80 |
+| `case_weather_lookup-prompt-v2` | 0.95 | 0.91 | 1.00 |
 
-### Experiment: `sample-20240424T120000` (one per run)
+---
 
-Each run creates a new timestamped Experiment against the same Dataset.
-Each Experiment produces 4 Experiment Runs — one per Example — with these scores:
+### Dataset: `case_multi_turn_booking` (2 Examples, stable across runs)
 
-| Experiment Run | faithfulness | factual_correctness | tool_call_accuracy |
-|---|---|---|---|
-| Example #1 | ✓ per-turn | ✓ per-turn | repeated from `case_weather_lookup` |
-| Example #2 | ✓ per-turn | ✓ per-turn | repeated from `case_flight_search` |
-| Example #3 | ✓ per-turn | ✓ per-turn | repeated from `case_multi_turn_booking` |
-| Example #4 | ✓ per-turn | ✓ per-turn | same as #3 (case-level metric) |
+| Example | `turn_index` | `user_input` |
+|---|---|---|
+| #1 | 0 | "What is the weather in Paris?" |
+| #2 | 1 | "Book me a hotel for 2 nights starting tomorrow." |
 
-`tool_call_accuracy` is a case-level metric computed by Ragas over the full conversation,
-so it has the same value for all turns belonging to the same eval case.
+| Experiment | Example | faithfulness | factual_correctness | tool_call_accuracy |
+|---|---|---|---|---|
+| `case_multi_turn_booking-prompt-v1` | #1 | 0.95 | 0.90 | 0.75 |
+| `case_multi_turn_booking-prompt-v1` | #2 | 0.88 | 0.84 | 0.75 |
+| `case_multi_turn_booking-prompt-v2` | #1 | 0.97 | 0.93 | 1.00 |
+| `case_multi_turn_booking-prompt-v2` | #2 | 0.94 | 0.89 | 1.00 |
+
+`tool_call_accuracy` is a case-level metric (computed over the full conversation),
+so it has the same value for all turns within a case.
+
+## Usage
+
+```bash
+# Label the experiment with a prompt variant name for easy comparison in Phoenix UI
+uv run python run_ragas.py examples/sample.evalset.json \
+  --phoenix-endpoint http://localhost:6006 \
+  --experiment-label prompt-v2
+
+# Replay from a pickle snapshot
+uv run python debug_phoenix.py --label prompt-v2
+```
 
 ## Why Example = turn (not eval case)
 
-`faithfulness` and `factual_correctness` are per-turn metrics. Aggregating them to case
-level before storing would discard exactly the information Phoenix is useful for: which
-specific turn failed and by how much. `tool_call_accuracy` is the one case-level metric;
-it is repeated across all turns of a case with a label that makes this clear in the UI.
+`faithfulness` and `factual_correctness` are per-turn metrics — aggregating them
+to case level before storing discards exactly the information Phoenix is useful for:
+which specific turn failed and by how much. `tool_call_accuracy` is the one
+case-level metric and is repeated across all turns of its case.

@@ -9,7 +9,7 @@ Then run:
 
     cd ragas_eval
     uv run python debug_phoenix.py
-    uv run python debug_phoenix.py --endpoint http://localhost:6006 --project my-project --evalset my_eval
+    uv run python debug_phoenix.py --endpoint http://localhost:6006 --project my-project --label prompt-v2
 """
 
 import argparse
@@ -26,8 +26,8 @@ def parse_args() -> argparse.Namespace:
                         help="Phoenix base URL")
     parser.add_argument("--project", default="ragas-eval",
                         help="Phoenix project name")
-    parser.add_argument("--evalset", default="",
-                        help="Evalset name used to label the Phoenix dataset")
+    parser.add_argument("--label", default="",
+                        help="Experiment label, e.g. 'prompt-v2'. Defaults to UTC timestamp.")
     return parser.parse_args()
 
 
@@ -49,7 +49,7 @@ def main() -> None:
         result=result,
         case_results=case_results,
         config=config,
-        evalset_path=args.evalset,
+        experiment_label=args.label,
     )
     print("Done.")
 
