@@ -78,15 +78,21 @@ def publish_to_phoenix(
     def task(example) -> str:
         return example["output"]["agent_response"]
 
-    def faithfulness(output, metadata) -> float | None:
-        return per_turn_scores.get(_key(metadata), {}).get("faithfulness")
+    def _score(metadata, metric: str) -> float:
+        value = per_turn_scores.get(_key(metadata), {}).get(metric)
+        if value is None:
+            raise ValueError(f"no {metric} score for {_key(metadata)}")
+        return value
 
-    def factual_correctness(output, metadata) -> float | None:
-        return per_turn_scores.get(_key(metadata), {}).get("factual_correctness")
+    def faithfulness(output, metadata) -> float:
+        return _score(metadata, "faithfulness")
 
-    def tool_call_accuracy__case(output, metadata) -> float | None:
+    def factual_correctness(output, metadata) -> float:
+        return _score(metadata, "factual_correctness")
+
+    def tool_call_accuracy__case(output, metadata) -> float:
         """Case-level metric repeated per turn. Same value for all turns in a case."""
-        return per_turn_scores.get(_key(metadata), {}).get("tool_call_accuracy")
+        return _score(metadata, "tool_call_accuracy")
 
     for case in case_results:
         try:
