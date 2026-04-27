@@ -29,6 +29,7 @@ from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.providers.openapi import OpenAPIProvider
 
 from field_filter import FieldFilterMiddleware, build_response_fields
+from tools import tasks as tasks_tools
 from tools import users as users_tools
 
 SPECS_DIR = Path(__file__).parent / "examples"
@@ -93,6 +94,7 @@ for namespace, spec in _specs:
         namespace=namespace,
     )
 
+tasks_tools.register(mcp, _client)
 users_tools.register(mcp, _client)
 
 
