@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 import pandas as pd
@@ -71,12 +72,42 @@ def publish_to_phoenix(
     client = Client(endpoint=config.endpoint)
     per_turn_scores = _build_per_turn_scores(result, case_results)
 
+    for case in case_results:
+        dataset = _create_or_get_dataset(client, case)
+        _run_experiment(client, run_experiment, dataset, case.eval_case_id, label, per_turn_scores)
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _create_or_get_dataset(client, case: CaseResult):
+    """Create a Phoenix Dataset for a case, or reuse it if it already exists."""
+    try:
+        return client.datasets.create_dataset(
+            name=case.eval_case_id,
+            dataframe=_build_case_df(case),
+            input_keys=["user_input"],
+            output_keys=["agent_response", "reference"],
+            metadata_keys=["case_id", "turn_index"],
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 409:
+            raise
+        return client.datasets.get_dataset(dataset=case.eval_case_id)
+
+
+def _run_experiment(
+    client,
+    run_experiment_fn,
+    dataset,
+    case_id: str,
+    label: str,
+    per_turn_scores: dict[tuple[str, int], dict[str, float]],
+) -> None:
+    """Run a Phoenix Experiment for a single eval case."""
+
     def _key(metadata) -> tuple[str, int]:
         # turn_index is stored as int but Phoenix may deserialize it as float via JSON.
         return (metadata["case_id"], int(metadata["turn_index"]))
-
-    def task(example) -> str:
-        return example["output"]["agent_response"]
 
     def _score(metadata, metric: str) -> float:
         value = per_turn_scores.get(_key(metadata), {}).get(metric)
@@ -84,41 +115,27 @@ def publish_to_phoenix(
             raise ValueError(f"no {metric} score for {_key(metadata)}")
         return value
 
-    def faithfulness(output, metadata) -> float:
+    def task(example) -> str:
+        return example["output"]["agent_response"]
+
+    def faithfulness(metadata: dict[str, Any]) -> float:
         return _score(metadata, "faithfulness")
 
-    def factual_correctness(output, metadata) -> float:
+    def factual_correctness(metadata: dict[str, Any]) -> float:
         return _score(metadata, "factual_correctness")
 
-    def tool_call_accuracy__case(output, metadata) -> float:
+    def tool_call_accuracy__case(metadata: dict[str, Any]) -> float:
         """Case-level metric repeated per turn. Same value for all turns in a case."""
         return _score(metadata, "tool_call_accuracy")
 
-    for case in case_results:
-        try:
-            dataset = client.datasets.create_dataset(
-                name=case.eval_case_id,
-                dataframe=_build_case_df(case),
-                input_keys=["user_input"],
-                output_keys=["agent_response", "reference"],
-                metadata_keys=["case_id", "turn_index"],
-            )
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code != 409:
-                raise
-            # Dataset (and its Examples) already exist — reuse for this Experiment.
-            dataset = client.datasets.get_dataset(dataset=case.eval_case_id)
+    run_experiment_fn(
+        dataset=dataset,
+        task=task,
+        evaluators=[faithfulness, factual_correctness, tool_call_accuracy__case],
+        experiment_name=f"{case_id}-{label}",
+        client=client,
+    )
 
-        run_experiment(
-            dataset=dataset,
-            task=task,
-            evaluators=[faithfulness, factual_correctness, tool_call_accuracy__case],
-            experiment_name=f"{case.eval_case_id}-{label}",
-            client=client,
-        )
-
-
-# ── helpers ──────────────────────────────────────────────────────────────────
 
 def _build_case_df(case: CaseResult) -> pd.DataFrame:
     """One row per turn for a single eval case."""
