@@ -11,13 +11,17 @@ Four patterns illustrated here:
 import httpx
 from fastmcp import FastMCP
 
+from tools import make_tool_decorator
 
-def register(mcp: FastMCP, client: httpx.AsyncClient) -> None:
+
+def register(mcp: FastMCP, client: httpx.AsyncClient, namespace: str = "tasks") -> None:
+
+    tool = make_tool_decorator(mcp, namespace)
 
     # ------------------------------------------------------------------
     # Pattern 1: tool with a single path argument
     # ------------------------------------------------------------------
-    @mcp.tool
+    @tool
     async def get_task_status(task_id: str) -> dict:
         """Return the completion status and title for a specific task.
 
@@ -34,7 +38,7 @@ def register(mcp: FastMCP, client: httpx.AsyncClient) -> None:
     # ------------------------------------------------------------------
     # Pattern 2: tool with an argument used for client-side filtering
     # ------------------------------------------------------------------
-    @mcp.tool
+    @tool
     async def list_tasks_by_status(completed: bool) -> list[dict]:
         """Return all tasks that match the given completion status.
 
@@ -54,8 +58,8 @@ def register(mcp: FastMCP, client: httpx.AsyncClient) -> None:
     # ------------------------------------------------------------------
     # Pattern 3: tool that sends a POST request with a JSON body
     # ------------------------------------------------------------------
-    @mcp.tool
-    async def create_task(title: str, description: str = "") -> dict:
+    @tool
+    async def create_task_manual(title: str, description: str = "") -> dict:
         """Create a new task and return its ID and title.
 
         Args:
@@ -82,7 +86,7 @@ def register(mcp: FastMCP, client: httpx.AsyncClient) -> None:
         500,  # Internal Server Error — upstream signals no data for params
     }
 
-    @mcp.tool
+    @tool
     async def get_task_report(task_id: str, period: str) -> dict | None:
         """Fetch the activity report for a task over a given period.
 

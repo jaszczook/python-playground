@@ -7,9 +7,14 @@ actually needs, rather than exposing raw API responses.
 import httpx
 from fastmcp import FastMCP
 
+from tools import make_tool_decorator
 
-def register(mcp: FastMCP, client: httpx.AsyncClient) -> None:
-    @mcp.tool
+
+def register(mcp: FastMCP, client: httpx.AsyncClient, namespace: str = "users") -> None:
+
+    tool = make_tool_decorator(mcp, namespace)
+
+    @tool
     async def list_user_summaries() -> list[dict]:
         """Return a minimal summary (id + name) for every user.
 
